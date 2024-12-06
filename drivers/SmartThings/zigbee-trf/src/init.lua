@@ -1,4 +1,4 @@
--- Copyright 2022 SmartThings
+-- Copyright 2023 SmartThings
 --
 -- Licensed under the Apache License, Version 2.0 (the "License");
 -- you may not use this file except in compliance with the License.
@@ -13,44 +13,53 @@
 -- limitations under the License.
 
 local capabilities = require "st.capabilities"
-local ZigbeeDriver = require "st.zigbee"
+local log = require "log"
+local stDevice = require "st.device"
+local zcl_clusters = require "st.zigbee.zcl.clusters"
+local cluster_base = require "st.zigbee.cluster_base"
+local data_types = require "st.zigbee.data_types"
+
+-- local Scenes = zcl_clusters.Scenes
+local PRIVATE_CLUSTER_ID = 0x0006
+local PRIVATE_ATTRIBUTE_ID = 0x6000
+local MFG_CODE = 0x1235
+local button_amount = 1
 local defaults = require "st.zigbee.defaults"
-local clusters = require "st.zigbee.zcl.clusters"
-local configurationMap = require "configurations"
-local SimpleMetering = clusters.SimpleMetering
-local ElectricalMeasurement = clusters.ElectricalMeasurement
-local preferences = require "preferences"
+local ZigbeeDriver = require "st.zigbee"
+local OnOff = zcl_clusters.OnOff
 
-local function lazy_load_if_possible(sub_driver_name)
-  -- gets the current lua libs api version
-  local version = require "version"
 
-  -- version 9 will include the lazy loading functions
-  if version.api >= 9 then
-    return ZigbeeDriver.lazy_load_sub_driver(require(sub_driver_name))
-  else
-    return require(sub_driver_name)
-  end
+local FINGERPRINTS = {
+  { mfr = "REXENSE", model = "HY0002", switches = 2},
+}
 
+-- local function can_handle_wallhero_switch(opts, driver, device, ...)
+--  for _, fingerprint in ipairs(FINGERPRINTS) do
+--    if device:get_manufacturer() == fingerprint.mfr and device:get_model() == fingerprint.model then
+--     --  local subdriver = require("src")
+--      return true
+--    end
+--  end
+--  return false
+-- end
+
+-- local do_configure = function(self, device)
+--   device:refresh()
+--   device:configure()
+-- end
+ 
+
+
+local function switch_on_handler(driver,device,command)
+--  device:send_to_component(command.component, OnOff.server.commands.On(device))
+  device:send(OnOff.server.commands.On(device))
+  -- device:send(OnOff.client.commands.On(device))
 end
 
-local function info_changed(self, device, event, args)
-  preferences.update_preferences(self, device, args)
-end
-
-local do_configure = function(self, device)
-  device:refresh()
-  device:configure()
-
-  -- Additional one time configuration
-  if device:supports_capability(capabilities.energyMeter) or device:supports_capability(capabilities.powerMeter) then
-    -- Divisor and multipler for EnergyMeter
-    device:send(ElectricalMeasurement.attributes.ACPowerDivisor:read(device))
-    device:send(ElectricalMeasurement.attributes.ACPowerMultiplier:read(device))
-    -- Divisor and multipler for PowerMeter
-    device:send(SimpleMetering.attributes.Divisor:read(device))
-    device:send(SimpleMetering.attributes.Multiplier:read(device))
-  end
+local function switch_off_handler(driver,device,command)
+--  device:send_to_component(command.component, OnOff.server.commands.Off(device))
+  device:send(OnOff.server.commands.Off(device))
+  -- device:send(OnOff.client.commands.Off(device))
 end
 
 local function component_to_endpoint(device, component_id)
@@ -66,67 +75,127 @@ local function endpoint_to_component(device, ep)
     return "main"
   end
 end
+ 
 
-local device_init = function(self, device)
-  device:set_component_to_endpoint_fn(component_to_endpoint)
-  device:set_endpoint_to_component_fn(endpoint_to_component)
-
-  local configuration = configurationMap.get_device_configuration(device)
-  if configuration ~= nil then
-    for _, attribute in ipairs(configuration) do
-      device:add_configured_attribute(attribute)
-      device:add_monitored_attribute(attribute)
+local function get_children_info(device)
+  log.error("2222222222222222");
+  for _, fingerprint in ipairs(FINGERPRINTS) do
+    if device:get_model() == fingerprint.model then
+      return fingerprint.switches
     end
-  end
-
-  local ias_zone_config_method = configurationMap.get_ias_zone_config_method(device)
-  if ias_zone_config_method ~= nil then
-    device:set_ias_zone_config_method(ias_zone_config_method)
   end
 end
 
-local zigbee_switch_driver_template = {
-  supported_capabilities = {
-    capabilities.switch,
-    capabilities.switchLevel,
-    capabilities.colorControl,
-    capabilities.colorTemperature,
-    capabilities.powerMeter,
-    capabilities.energyMeter,
-    capabilities.motionSensor
-  },
-  sub_drivers = {
-    lazy_load_if_possible("hanssem"),
-    lazy_load_if_possible("aqara"),
-    lazy_load_if_possible("aqara-light"),
-    lazy_load_if_possible("ezex"),
-    lazy_load_if_possible("rexense"),
-    lazy_load_if_possible("sinope"),
-    lazy_load_if_possible("sinope-dimmer"),
-    lazy_load_if_possible("zigbee-dimmer-power-energy"),
-    lazy_load_if_possible("zigbee-metering-plug-power-consumption-report"),
-    lazy_load_if_possible("jasco"),
-    lazy_load_if_possible("multi-switch-no-master"),
-    lazy_load_if_possible("zigbee-dual-metering-switch"),
-    lazy_load_if_possible("rgb-bulb"),
-    lazy_load_if_possible("zigbee-dimming-light"),
-    lazy_load_if_possible("white-color-temp-bulb"),
-    lazy_load_if_possible("rgbw-bulb"),
-    lazy_load_if_possible("zll-dimmer-bulb"),
-    lazy_load_if_possible("zigbee-switch-power"),
-    lazy_load_if_possible("ge-link-bulb"),
-    lazy_load_if_possible("bad_on_off_data_type"),
-    lazy_load_if_possible("robb"),
-    lazy_load_if_possible("wallhero")
-  },
-  lifecycle_handlers = {
-    init = device_init,
-    infoChanged = info_changed,
-    doConfigure = do_configure
-  }
-}
 
-defaults.register_for_default_handlers(zigbee_switch_driver_template,
-  zigbee_switch_driver_template.supported_capabilities,  {native_capability_cmds_enabled = true})
-local zigbee_switch = ZigbeeDriver("zigbee_switch", zigbee_switch_driver_template)
+
+local function find_child(parent, ep_id)
+  return parent:get_child_by_parent_assigned_key(string.format("%02X", ep_id))
+end
+
+local function create_child_devices(driver, device)
+  local switch_amount = get_children_info(device)
+  local base_name = string.sub(device.label, 0, -2)
+  -- Create Switch 2-4
+  for i = 2, switch_amount, 1 do
+    log.error("11111111");
+    if find_child(device, i) == nil then
+      local metadata = {
+        type = "EDGE_CHILD",
+        parent_assigned_child_key = string.format("%02X", i),
+        label = base_name .. i,
+        profile = "basic-switch",
+        parent_device_id = device.id,
+        vendor_provided_label = base_name .. i,
+      }
+      driver:try_create_device(metadata)
+    end
+  end
+  -- Create Button if necessary
+  for i = switch_amount+1, switch_amount+button_amount, 1 do
+    if find_child(device, i) == nil then
+      local metadata = {
+        type = "EDGE_CHILD",
+        parent_assigned_child_key = string.format("%02X", i),
+        label = base_name .. i,
+        profile = "button",
+        parent_device_id = device.id,
+        vendor_provided_label = base_name .. i,
+      }
+      driver:try_create_device(metadata)
+    end
+  end
+  device:refresh()
+end
+
+local function device_added(driver, device)
+  if device.network_type ~= stDevice.NETWORK_TYPE_CHILD then
+    create_child_devices(driver, device)
+  end
+  -- Set Button Capabilities for scene switches
+ if device:supports_capability_by_id(capabilities.switch.ID) then
+   device:emit_event(capabilities.switch.switch.on())
+ end
+end
+
+local function device_info_changed(driver, device, event, args)
+  log.error("4444444444444444444444444444444444444");
+  local preferences = device.preferences
+  local old_preferences = args.old_st_store.preferences
+  local value_map = { [true] = 0x00,[false] = 0x01 }
+  if preferences ~= nil then
+    local id = "stse.turnOffIndicatorLight"
+    local old_value = old_preferences[id]
+    local value = preferences[id]
+    if value ~= nil and value ~= old_value  then
+      value = value_map[value]
+      local message = cluster_base.write_manufacturer_specific_attribute(device, PRIVATE_CLUSTER_ID, PRIVATE_ATTRIBUTE_ID, MFG_CODE, data_types.Uint8, value)
+      device:send(message)
+    end
+  end
+end
+
+local function device_init(driver, device, event)
+  device:set_component_to_endpoint_fn(component_to_endpoint)
+  device:set_endpoint_to_component_fn(endpoint_to_component)
+  device:set_find_child(find_child)
+end
+
+local function On_Off_cluster_handler(driver, device,value ,zb_rx)
+  
+  log.info("Enter scenes_cluster_handler")
+  -- if value.value == false then
+  --   device:emit_event_for_endpoint(capabilities.switch.switch.off())
+  -- else
+  --   device:emit_event_for_endpoint(capabilities.switch.switch.on())
+  -- end
+  local attr = capabilities.switch.switch
+  device:emit_event_for_endpoint(zb_rx.address_header.src_endpoint.value, value.value == false and attr.off() or attr.on())
+
+end
+
+local zigbeeswitch = {
+  log.error("55555555555555555555555555");
+  NAME = "Zigbee Wall Hero Switch",
+  lifecycle_handlers = {
+    added = device_added,
+    init = device_init,
+    infoChanged = device_info_changed
+  },
+  capability_handlers = {
+    [capabilities.switch.ID] = {
+      [capabilities.switch.commands.on.NAME] = switch_on_handler,
+      [capabilities.switch.commands.off.NAME] = switch_off_handler
+    }
+  },
+  zigbee_handlers = {
+    attr = {
+      [OnOff.ID] = {
+        [OnOff.attributes.OnOff.ID] = On_Off_cluster_handler,
+      }
+    }
+  }
+  -- can_handle = can_handle_wallhero_switch
+}
+defaults.register_for_default_handlers(zigbeeswitch, {native_capability_cmds_enabled = true})
+local zigbee_switch = ZigbeeDriver("zigbee_switch", zigbeeswitch)
 zigbee_switch:run()
