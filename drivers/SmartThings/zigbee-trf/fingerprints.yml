@@ -1,0 +1,7 @@
+zigbeeManufacturer:
+  #SMARTvill
+  - id: "REXENSE/HY0002"
+    deviceLabel: "SMARTvill Switch 1"
+    manufacturer: REXENSE
+    model: HY0002
+    deviceProfileName: basic-switch
